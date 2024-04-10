@@ -1,0 +1,59 @@
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+import pandas as pd
+import sqlite3
+
+def setup_database(db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('CREATE TABLE IF NOT EXISTS qa_pairs (question TEXT, answer TEXT)')
+    conn.commit()
+    conn.close()
+
+def bulk_import_qa_pairs(file_path, db_path):
+    try:
+        df = pd.read_csv(file_path)
+        if 'question' in df.columns and 'answer' in df.columns:
+            conn = sqlite3.connect(db_path)
+            df.to_sql('qa_pairs', conn, if_exists='append', index=False, method='multi')
+            conn.close()
+            return "Data imported successfully."
+        else:
+            return "CSV file must contain 'question' and 'answer' columns."
+    except Exception as e:
+        return f"An error occurred: {e}"
+
+class BulkImportGUI:
+    def __init__(self, db_path):
+        self.db_path = db_path
+        self.root = tk.Tk()
+        self.root.title("Bulk Import Q&A")
+
+        # File selection button
+        self.select_file_button = ttk.Button(self.root, text="Select CSV File", command=self.select_file)
+        self.select_file_button.pack(pady=10)
+
+        # Import button (initially disabled)
+        self.import_button = ttk.Button(self.root, text="Import to Database", command=self.import_data, state='disabled')
+        self.import_button.pack(pady=10)
+
+        self.selected_file_label = ttk.Label(self.root, text="")
+        self.selected_file_label.pack(pady=10)
+
+    def select_file(self):
+        self.file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
+        if self.file_path:
+            self.selected_file_label.config(text=f"Selected File: {self.file_path}")
+            self.import_button['state'] = 'normal'  # Enable the import button
+
+    def import_data(self):
+        message = bulk_import_qa_pairs(self.file_path, self.db_path)
+        messagebox.showinfo("Import Status", message)
+        self.import_button['state'] = 'disabled'  # Disable the import button
+
+# Main execution
+if __name__ == "__main__":
+    db_path = r'C:\Users\rohitkumar\OneDrive - Deloitte (O365D)\Software\RKS Tools\Final Version\TVNET-Chatbot\qa_database.db'
+    setup_database(db_path)
+    app = BulkImportGUI(db_path)
+    app.root.mainloop()
