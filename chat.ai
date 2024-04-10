@@ -1,0 +1,124 @@
+import sqlite3
+import tkinter as tk
+from datetime import datetime
+import spacy
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+# Load the spaCy model for natural language processing
+nlp = spacy.load('en_core_web_sm')
+
+# Database setup and management
+def setup_database():
+    conn = sqlite3.connect('chatbot.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS qa_pairs (
+            id INTEGER PRIMARY KEY,
+            question TEXT,
+            answer TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+def get_answer(question):
+    conn = sqlite3.connect('chatbot.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT question, answer FROM qa_pairs')
+    qa_pairs = cursor.fetchall()
+    conn.close()
+
+    if not qa_pairs:
+        return None
+
+    questions, answers = zip(*qa_pairs)
+    vectorizer = TfidfVectorizer()
+    question_vectors = vectorizer.fit_transform(questions)
+
+    question_vec = vectorizer.transform([question])
+    similarities = cosine_similarity(question_vec, question_vectors)
+    
+    max_similarity_index = similarities.argmax()
+    max_similarity = similarities[0, max_similarity_index]
+
+    if max_similarity > 0.5:  # Threshold for determining a match
+        return answers[max_similarity_index]
+    return None
+
+def add_or_update_qa_pair(question, answer):
+    conn = sqlite3.connect('chatbot.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT answer FROM qa_pairs WHERE question = ?', (question,))
+    existing_answer = cursor.fetchone()
+
+    if existing_answer:
+        cursor.execute('UPDATE qa_pairs SET answer = ? WHERE question = ?', (answer, question))
+    else:
+        cursor.execute('INSERT INTO qa_pairs (question, answer) VALUES (?, ?)', (question, answer))
+
+    conn.commit()
+    conn.close()
+
+# GUI Application
+class QnAGuiApp:
+    def __init__(self, root):
+        self.root = root
+        self.conversation_history = []
+        root.title("Intelligent Chatbot")
+        root.configure(bg='light grey')
+
+        chat_frame = tk.Frame(root, bg='white')
+        chat_frame.pack(padx=20, pady=20, fill='both', expand=True)
+
+        self.chat_display = tk.Text(chat_frame, height=15, width=50, bg='light yellow')
+        self.chat_display.pack(side='left', fill='both', expand=True)
+        self.chat_display.config(state='disabled')
+
+        chat_scrollbar = tk.Scrollbar(chat_frame, command=self.chat_display.yview)
+        chat_scrollbar.pack(side='right', fill='y')
+        self.chat_display['yscrollcommand'] = chat_scrollbar.set
+
+        self.question_entry = tk.Entry(root, width=40)
+        self.question_entry.pack(pady=10)
+        self.question_entry.bind("<Return>", self.search_question)
+
+        send_button = tk.Button(root, text="Send", command=self.search_question, bg='blue', fg='white')
+        send_button.pack()
+
+    def search_question(self, event=None):
+        question = self.question_entry.get()
+        self.update_chat(f"You: {question}")
+        self.conversation_history.append(question)
+        
+        answer = get_answer(question)
+        if answer:
+            self.update_chat(f"Bot: {answer}")
+        else:
+            self.update_chat("Bot: I don't know the answer. Can you tell me?")
+            self.answer_entry = tk.Entry(self.root, width=40)
+            self.answer_entry.pack(pady=10)
+            add_button = tk.Button(self.root, text="Add Answer", command=self.add_answer, bg='green', fg='white')
+            add_button.pack()
+
+    def add_answer(self):
+        answer = self.answer_entry.get()
+        question = self.conversation_history[-1]
+        if answer and question:
+            add_or_update_qa_pair(question, answer)
+            self.update_chat("Bot: Thank you! I've learned something new.")
+            self.answer_entry.pack_forget()
+
+    def update_chat(self, message):
+        self.chat_display.config(state='normal')
+        self.chat_display.insert(tk.END, message + '\n\n')
+        self.chat_display.config(state='disabled')
+        self.chat_display.see(tk.END)
+
+# Run the application
+if __name__ == "__main__":
+    setup_database()
+    root = tk.Tk()
+    app = QnAGuiApp(root)
+    root.mainloop()
