@@ -1,6 +1,6 @@
 import sqlite3
 import tkinter as tk
-from tkinter import simpledialog
+from tkinter import simpledialog, font as tkfont
 import spacy
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -71,24 +71,26 @@ class QnAGuiApp:
     def __init__(self, root):
         self.root = root
         self.conversation_history = []
-        root.title("Tachy")
-        root.configure(bg='light grey')
+        root.title("Tachy Chat")
+        root.configure(bg='#9604c7')
 
-        chat_frame = tk.Frame(root, bg='white')
+        chat_font = tkfont.Font(family="Helvetica", size=12)
+        chat_frame = tk.Frame(root, bg='white', bd=2)
         chat_frame.pack(padx=20, pady=20, fill='both', expand=True)
 
-        self.chat_display = tk.Text(chat_frame, height=15, width=50, bg='light yellow', state='disabled')
+        self.chat_display = tk.Text(chat_frame, height=15, width=50, bg='white', state='disabled', font=chat_font)
         self.chat_display.pack(side='left', fill='both', expand=True)
 
         chat_scrollbar = tk.Scrollbar(chat_frame, command=self.chat_display.yview)
         chat_scrollbar.pack(side='right', fill='y')
         self.chat_display['yscrollcommand'] = chat_scrollbar.set
 
-        self.question_entry = tk.Entry(root, width=40)
+        entry_font = tkfont.Font(family="Helvetica", size=12, weight="bold")
+        self.question_entry = tk.Entry(root, width=40, font=entry_font, bg='white', fg='#9604c7')
         self.question_entry.pack(pady=10)
         self.question_entry.bind("<Return>", self.search_question)
 
-        send_button = tk.Button(root, text="Send", command=self.search_question, bg='blue', fg='white')
+        send_button = tk.Button(root, text="Send", command=self.search_question, bg='white', fg='#9604c7', font=entry_font, relief='groove')
         send_button.pack()
 
     def search_question(self, event=None):
@@ -116,7 +118,7 @@ class QnAGuiApp:
         self.chat_display.config(state='normal')
         self.chat_display.insert(tk.END, message + '\n\n')
         if question:
-            edit_button = tk.Button(self.root, text="Edit", command=lambda q=question: self.edit_answer(q))
+            edit_button = tk.Button(self.root, text="Edit", command=lambda q=question: self.edit_answer(q), bg='white', fg='#9604c7')
             self.chat_display.window_create(tk.END, window=edit_button)
             self.chat_display.insert(tk.END, '\n\n')
         self.chat_display.config(state='disabled')
@@ -132,5 +134,6 @@ class QnAGuiApp:
 if __name__ == "__main__":
     setup_database()
     root = tk.Tk()
+    root.iconbitmap(r'C:\Users\ASUS\OneDrive\Desktop\Project\Tachy\tachy.ico')  # Set the window icon
     app = QnAGuiApp(root)
     root.mainloop()
