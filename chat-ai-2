@@ -2,13 +2,23 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import pandas as pd
 import sqlite3
+import os
 
 def setup_database(db_path):
+    # Get the directory name from the database path
+    dir_name = os.path.dirname(db_path)
+    # Create the directory if it doesn't exist and if the directory name is not empty
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
+    # Connect to the SQLite database
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute('CREATE TABLE IF NOT EXISTS qa_pairs (question TEXT, answer TEXT)')
+    # Create table if it doesn't exist
+    cursor.execute('''CREATE TABLE IF NOT EXISTS qa_pairs
+                      (question TEXT, answer TEXT)''')
     conn.commit()
     conn.close()
+
 
 def bulk_import_qa_pairs(file_path, db_path):
     try:
@@ -49,11 +59,12 @@ class BulkImportGUI:
     def import_data(self):
         message = bulk_import_qa_pairs(self.file_path, self.db_path)
         messagebox.showinfo("Import Status", message)
-        self.import_button['state'] = 'disabled'  # Disable the import button
+        self.import_button['state'] = 'disabled'  # Disable the import button after import
 
 # Main execution
 if __name__ == "__main__":
-    db_path = r'C:\Users\rohitkumar\OneDrive - Deloitte (O365D)\Software\RKS Tools\Final Version\TVNET-Chatbot\qa_database.db'
-    setup_database(db_path)
-    app = BulkImportGUI(db_path)
+    # Define your local database path here
+    local_db_path = 'qa_database.db'  # Local path for the database
+    setup_database(local_db_path)
+    app = BulkImportGUI(local_db_path)
     app.root.mainloop()
