@@ -1,16 +1,22 @@
 import sqlite3
 import tkinter as tk
-from datetime import datetime
+from tkinter import simpledialog
 import spacy
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import os
 
 # Load the spaCy model for natural language processing
 nlp = spacy.load('en_core_web_sm')
 
-# Database setup and management
+db_path = 'chatbot.db'  # Define your database path here
+
 def setup_database():
-    conn = sqlite3.connect('chatbot.db')
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+    
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS qa_pairs (
@@ -24,14 +30,14 @@ def setup_database():
     conn.close()
 
 def get_answer(question):
-    conn = sqlite3.connect('chatbot.db')
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('SELECT question, answer FROM qa_pairs')
     qa_pairs = cursor.fetchall()
     conn.close()
 
     if not qa_pairs:
-        return None
+        return None, None
 
     questions, answers = zip(*qa_pairs)
     vectorizer = TfidfVectorizer()
@@ -43,12 +49,12 @@ def get_answer(question):
     max_similarity_index = similarities.argmax()
     max_similarity = similarities[0, max_similarity_index]
 
-    if max_similarity > 0.5:  # Threshold for determining a match
-        return answers[max_similarity_index]
-    return None
+    if max_similarity > 0.5:
+        return answers[max_similarity_index], questions[max_similarity_index]
+    return None, None
 
 def add_or_update_qa_pair(question, answer):
-    conn = sqlite3.connect('chatbot.db')
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('SELECT answer FROM qa_pairs WHERE question = ?', (question,))
     existing_answer = cursor.fetchone()
@@ -61,20 +67,18 @@ def add_or_update_qa_pair(question, answer):
     conn.commit()
     conn.close()
 
-# GUI Application
 class QnAGuiApp:
     def __init__(self, root):
         self.root = root
         self.conversation_history = []
-        root.title("Intelligent Chatbot")
+        root.title("Tachy")
         root.configure(bg='light grey')
 
         chat_frame = tk.Frame(root, bg='white')
         chat_frame.pack(padx=20, pady=20, fill='both', expand=True)
 
-        self.chat_display = tk.Text(chat_frame, height=15, width=50, bg='light yellow')
+        self.chat_display = tk.Text(chat_frame, height=15, width=50, bg='light yellow', state='disabled')
         self.chat_display.pack(side='left', fill='both', expand=True)
-        self.chat_display.config(state='disabled')
 
         chat_scrollbar = tk.Scrollbar(chat_frame, command=self.chat_display.yview)
         chat_scrollbar.pack(side='right', fill='y')
@@ -88,33 +92,41 @@ class QnAGuiApp:
         send_button.pack()
 
     def search_question(self, event=None):
-        question = self.question_entry.get()
+        question = self.question_entry.get().strip()
+        if not question:
+            return
+
         self.update_chat(f"You: {question}")
         self.conversation_history.append(question)
-        
-        answer = get_answer(question)
+
+        answer, matched_question = get_answer(question)
         if answer:
-            self.update_chat(f"Bot: {answer}")
+            self.update_chat(f"Bot: {answer}", matched_question)
         else:
             self.update_chat("Bot: I don't know the answer. Can you tell me?")
-            self.answer_entry = tk.Entry(self.root, width=40)
-            self.answer_entry.pack(pady=10)
-            add_button = tk.Button(self.root, text="Add Answer", command=self.add_answer, bg='green', fg='white')
-            add_button.pack()
+            self.get_user_input(question)
 
-    def add_answer(self):
-        answer = self.answer_entry.get()
-        question = self.conversation_history[-1]
-        if answer and question:
+    def get_user_input(self, question):
+        answer = simpledialog.askstring("Input", "What should be the answer?", parent=self.root)
+        if answer:
             add_or_update_qa_pair(question, answer)
             self.update_chat("Bot: Thank you! I've learned something new.")
-            self.answer_entry.pack_forget()
 
-    def update_chat(self, message):
+    def update_chat(self, message, question=None):
         self.chat_display.config(state='normal')
         self.chat_display.insert(tk.END, message + '\n\n')
+        if question:
+            edit_button = tk.Button(self.root, text="Edit", command=lambda q=question: self.edit_answer(q))
+            self.chat_display.window_create(tk.END, window=edit_button)
+            self.chat_display.insert(tk.END, '\n\n')
         self.chat_display.config(state='disabled')
         self.chat_display.see(tk.END)
+
+    def edit_answer(self, question):
+        new_answer = simpledialog.askstring("Edit Answer", "What is the correct answer?", parent=self.root)
+        if new_answer:
+            add_or_update_qa_pair(question, new_answer)
+            self.update_chat(f"Bot (Updated): {new_answer}")
 
 # Run the application
 if __name__ == "__main__":
