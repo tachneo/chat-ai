@@ -58,3 +58,6 @@ This project is licensed under the MIT License - see the LICENSE.md file for det
 6. **Usage**: Explains how to use the application.
 7. **Contributing**: Encourages contributions to the project.
 8. **License**: Mentions the project's license.
+
+Contact : **Whatsapp **: **+918434801033**
+linkedin : **https://www.linkedin.com/in/tachy/**
