@@ -97,16 +97,19 @@ class QnAGuiApp:
         question = self.question_entry.get().strip()
         if not question:
             return
-
+    
         self.update_chat(f"You: {question}")
         self.conversation_history.append(question)
-
+    
         answer, matched_question = get_answer(question)
         if answer:
             self.update_chat(f"Bot: {answer}", matched_question)
         else:
             self.update_chat("Bot: I don't know the answer. Can you tell me?")
             self.get_user_input(question)
+    
+        self.question_entry.delete(0, 'end')  # Clear the entry box after the question is processed
+
 
     def get_user_input(self, question):
         answer = simpledialog.askstring("Input", "What should be the answer?", parent=self.root)
