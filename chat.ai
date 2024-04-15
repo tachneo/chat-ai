@@ -4,6 +4,8 @@ from tkinter import simpledialog, font as tkfont
 import spacy
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+import re
+from sympy import sympify, symbols, solve, S
 import os
 
 # Load the spaCy model for natural language processing
@@ -67,6 +69,33 @@ def add_or_update_qa_pair(question, answer):
     conn.commit()
     conn.close()
 
+def solve_math_problem(question, decimal_places=2):
+    try:
+        # Strip off leading 'solve' and any non-math characters that might confuse the parser
+        clean_question = re.sub(r'[^0-9\+\-\*\/\^\(\)\=\.]', ' ', question.replace('solve', '', 1).strip())
+        # Use sympify to parse the cleaned question
+        expr = sympify(clean_question)
+        
+        # Identify variables in the expression
+        variables = expr.free_symbols
+        if not variables:
+            # Evaluate directly if no variables and format the result
+            evaluated_result = expr.evalf()
+            formatted_result = f"{evaluated_result:.{decimal_places}f}"  # Format to specified decimal places
+            return f"The solution is {formatted_result}"
+        
+        # If there are variables, attempt to solve the expression
+        solution = solve(expr, *variables)
+        
+        # Format the output depending on the type of solution
+        if isinstance(solution, list):
+            return ', '.join([f"{str(var)} = {float(sol):.{decimal_places}f}" for var, sol in zip(variables, solution)])
+        elif isinstance(solution, dict):
+            return ', '.join([f"{str(var)} = {float(sol):.{decimal_places}f}" for var, sol in solution.items()])
+        return f"The solution is {solution}"
+    except Exception as e:
+        return f"Could not solve the problem: {str(e)}"
+        
 class QnAGuiApp:
     def __init__(self, root):
         self.root = root
@@ -98,17 +127,27 @@ class QnAGuiApp:
         if not question:
             return
     
-        self.update_chat(f"You: {question}")
-        self.conversation_history.append(question)
-    
-        answer, matched_question = get_answer(question)
-        if answer:
-            self.update_chat(f"Bot: {answer}", matched_question)
+        # Check if the question is likely to be a math problem
+        if "solve" in question.lower() or "=" in question:
+            # Try to solve as a math problem
+            answer = solve_math_problem(question)
         else:
-            self.update_chat("Bot: I don't know the answer. Can you tell me?")
-            self.get_user_input(question)
+            # Regular chatbot functionality
+            answer, matched_question = get_answer(question)
+            if not answer:
+                self.update_chat("Bot: I don't know the answer. Can you tell me?")
+                self.get_user_input(question)
+                self.question_entry.delete(0, 'end')
+                return
     
-        self.question_entry.delete(0, 'end')  # Clear the entry box after the question is processed
+        self.update_chat(f"You: {question}")
+        if answer:
+            self.update_chat(f"Bot: {answer}")
+        else:
+            self.update_chat("Bot: I'm still learning about this, let me know the answer if you can!")
+    
+        self.question_entry.delete(0, 'end')
+
 
 
     def get_user_input(self, question):
@@ -133,6 +172,14 @@ class QnAGuiApp:
             add_or_update_qa_pair(question, new_answer)
             self.update_chat(f"Bot (Updated): {new_answer}")
 
+    def extract_variables(expr):
+        # Regex to find all potential variables (letters or words that could act as symbolic variables)
+        potential_vars = re.findall(r'[a-zA-Z_]+', expr)
+        # Filter out known function names in SymPy
+        known_functions = ['sin', 'cos', 'tan', 'exp', 'log', 'sqrt', 'pi', 'E']
+        variables = set(potential_vars) - set(known_functions)
+        return list(variables)
+           
 # Run the application
 if __name__ == "__main__":
     setup_database()
