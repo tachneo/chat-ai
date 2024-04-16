@@ -7,8 +7,15 @@ from sklearn.metrics.pairwise import cosine_similarity
 import re
 from sympy import sympify, symbols, solve, S
 import os
+from transformers import GPT2LMHeadModel, GPT2Tokenizer, BertTokenizer, BertModel
 
-# Load the spaCy model for natural language processing
+# Initialize BERT and GPT-2 models
+bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+bert_model = BertModel.from_pretrained('bert-base-uncased')
+gpt2_tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+gpt2_model = GPT2LMHeadModel.from_pretrained("gpt2")
+
+# Load spaCy model for supplementary NLP tasks
 nlp = spacy.load('en_core_web_sm')
 
 db_path = 'chatbot.db'  # Define your database path here
@@ -31,29 +38,52 @@ def setup_database():
     conn.commit()
     conn.close()
 
+# BERT embeddings
+def get_bert_embeddings(text):
+    inputs = bert_tokenizer(text, return_tensors="pt", padding=True, truncation=True)
+    outputs = bert_model(**inputs)
+    return outputs.last_hidden_state[:, 0, :].detach().numpy()
+
+# GPT-2 response generation
+def generate_response(prompt):
+    inputs = gpt2_tokenizer.encode(prompt, return_tensors="pt")
+    outputs = gpt2_model.generate(inputs, max_length=50, num_return_sequences=1)
+    return gpt2_tokenizer.decode(outputs[0], skip_special_tokens=True)
+    
 def get_answer(question):
+    # Normalizing the question
+    question = question.lower().strip()
+
+    # Open database connection
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute('SELECT question, answer FROM qa_pairs')
     qa_pairs = cursor.fetchall()
     conn.close()
 
+    # Check if database has data
     if not qa_pairs:
-        return None, None
+        return "I'm still learning. Can you teach me?", None
 
     questions, answers = zip(*qa_pairs)
     vectorizer = TfidfVectorizer()
     question_vectors = vectorizer.fit_transform(questions)
 
+    # Transform the query to the same vector space as the corpus
     question_vec = vectorizer.transform([question])
     similarities = cosine_similarity(question_vec, question_vectors)
-    
+
+    # Find the highest similarity score
     max_similarity_index = similarities.argmax()
     max_similarity = similarities[0, max_similarity_index]
 
+    # Consider answer if similarity is above a threshold, e.g., 0.5
     if max_similarity > 0.5:
         return answers[max_similarity_index], questions[max_similarity_index]
-    return None, None
+    
+    # If no similar question found, generate response using GPT-2
+    return generate_response(question), None
+
 
 def add_or_update_qa_pair(question, answer):
     conn = sqlite3.connect(db_path)
@@ -122,6 +152,51 @@ class QnAGuiApp:
         send_button = tk.Button(root, text="Send", command=self.search_question, bg='white', fg='#9604c7', font=entry_font, relief='groove')
         send_button.pack()
 
+    def categorize_and_respond(question):
+        if re.search(r'\b(solve|calculate|how much is|what is)\b', question):
+            return solve_math_problem(question)
+        elif re.search(r'\b(where do you live|your name|who built you)\b', question):
+            return handle_personal_questions(question)
+        else:
+            return generate_relevant_response(question)
+    
+    def handle_personal_questions(question):
+        responses = {
+            "where do you live": "I exist in the cloud, ready to assist you from anywhere!",
+            "your name": "I'm Tachy, your friendly virtual assistant.",
+            "who built you": "I was developed by Rohit Singh, an innovative software developer."
+        }
+        return responses.get(question.lower(), "I'm not sure how to answer that. Can you rephrase?")
+
+    def generate_dynamic_response(query):
+        # Assume `chat_model` is a pre-loaded large language model like GPT-3
+        response = chat_model.generate(query, max_length=50)
+        return response
+        
+    def generate_relevant_response(question):
+        # Assume generate_response is a method that uses GPT-2 or similar
+        response = generate_response(question).split(".")[0]  # Take the first sentence only
+        if not response.endswith("."):
+            response += "."
+        return response
+        
+    def adjust_tone_based_on_input(question, response):
+        if question.isupper():  # User is shouting
+            return response.upper()  # Respond in kind
+        return response
+    
+    # Example of handling predefined questions
+    def handle_predefined_questions(question):
+        responses = {
+            "where do you live": "I am digital and exist on servers!",
+            "who built you": "I was developed by Rohit Singh.",
+            "how are you": "I am good, thanks for asking. How can I assist you today?",
+            "what is your name": "My name is Tachy, your friendly AI assistant."
+        }
+        # Normalize question for better matching
+        question = question.lower().strip()
+        return responses.get(question, None)
+    
     def search_question(self, event=None):
         question = self.question_entry.get().strip()
         if not question:
@@ -185,7 +260,17 @@ class QnAGuiApp:
         known_functions = ['sin', 'cos', 'tan', 'exp', 'log', 'sqrt', 'pi', 'E']
         variables = set(potential_vars) - set(known_functions)
         return list(variables)
-           
+
+    previous_question = None  # Keep track of the last question asked
+    
+    def handle_repetition(question):
+        global previous_question
+        if question == previous_question:
+            return "As I mentioned earlier, " + generate_response(question)
+        else:
+            previous_question = question
+            return generate_response(question)
+
 # Run the application
 if __name__ == "__main__":
     setup_database()
