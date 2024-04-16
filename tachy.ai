@@ -127,9 +127,9 @@ class QnAGuiApp:
         if not question:
             return
     
-        # Improved detection for math problems and regular questions
-        if "solve" in question.lower() or any(char in question for char in "=+-*/^"):
-            # Enhanced math problem solving capabilities
+        # Enhanced detection for math problems using a regular expression
+        math_pattern = re.compile(r'(?<!\w)(solve|calculate|what is)\s+([-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?([+\-*/^]\s*[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?)*)(?!\w)')
+        if math_pattern.search(question.lower()):
             try:
                 answer = solve_math_problem(question)
                 self.update_chat(f"You: {question}")
