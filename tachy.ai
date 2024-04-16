@@ -127,51 +127,57 @@ class QnAGuiApp:
         if not question:
             return
     
-        # Check if the question is likely to be a math problem
-        if "solve" in question.lower() or "=" in question:
-            # Try to solve as a math problem
-            answer = solve_math_problem(question)
+        # Improved detection for math problems and regular questions
+        if "solve" in question.lower() or any(char in question for char in "=+-*/^"):
+            # Enhanced math problem solving capabilities
+            try:
+                answer = solve_math_problem(question)
+                self.update_chat(f"You: {question}")
+                if answer:
+                    self.update_chat(f"Bot: {answer}")
+                else:
+                    self.update_chat("Bot: I'm not sure how to solve this. Can you simplify the question?")
+            except Exception as e:
+                self.update_chat(f"Bot: Error solving math problem: {str(e)}")
         else:
-            # Regular chatbot functionality
+            # Use advanced natural language processing for better question understanding
             answer, matched_question = get_answer(question)
-            if not answer:
+            self.update_chat(f"You: {question}")
+            if answer:
+                self.update_chat(f"Bot: {answer}", matched_question)
+            else:
+                # If no answer is found, engage the user for learning
                 self.update_chat("Bot: I don't know the answer. Can you tell me?")
                 self.get_user_input(question)
-                self.question_entry.delete(0, 'end')
-                return
-    
-        self.update_chat(f"You: {question}")
-        if answer:
-            self.update_chat(f"Bot: {answer}")
-        else:
-            self.update_chat("Bot: I'm still learning about this, let me know the answer if you can!")
     
         self.question_entry.delete(0, 'end')
-
-
 
     def get_user_input(self, question):
         answer = simpledialog.askstring("Input", "What should be the answer?", parent=self.root)
         if answer:
             add_or_update_qa_pair(question, answer)
             self.update_chat("Bot: Thank you! I've learned something new.")
+            self.add_edit_button(question)
 
-    def update_chat(self, message, question=None):
+    def add_edit_button(self, question):
+        edit_button = tk.Button(self.root, text="Edit", command=lambda: self.edit_answer(question), bg='white', fg='#9604c7')
+        self.chat_display.window_create(tk.END, window=edit_button)
+        self.chat_display.insert(tk.END, '\n\n')
+    
+    def update_chat(self, message, matched_question=None):
         self.chat_display.config(state='normal')
-        self.chat_display.insert(tk.END, message + '\n\n')
-        if question:
-            edit_button = tk.Button(self.root, text="Edit", command=lambda q=question: self.edit_answer(q), bg='white', fg='#9604c7')
-            self.chat_display.window_create(tk.END, window=edit_button)
-            self.chat_display.insert(tk.END, '\n\n')
+        self.chat_display.insert(tk.END, message + '\n')
+        if matched_question:
+            self.add_edit_button(matched_question)
         self.chat_display.config(state='disabled')
         self.chat_display.see(tk.END)
 
     def edit_answer(self, question):
-        new_answer = simpledialog.askstring("Edit Answer", "What is the correct answer?", parent=self.root)
-        if new_answer:
-            add_or_update_qa_pair(question, new_answer)
-            self.update_chat(f"Bot (Updated): {new_answer}")
-
+        current_answer = simpledialog.askstring("Edit Answer", "Enter the new answer:", parent=self.root)
+        if current_answer:
+            add_or_update_qa_pair(question, current_answer)
+            self.update_chat(f"Bot (Updated): {current_answer}")
+            
     def extract_variables(expr):
         # Regex to find all potential variables (letters or words that could act as symbolic variables)
         potential_vars = re.findall(r'[a-zA-Z_]+', expr)
