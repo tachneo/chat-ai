@@ -7,13 +7,17 @@ from sklearn.metrics.pairwise import cosine_similarity
 import re
 from sympy import sympify, symbols, solve, S
 import os
-from transformers import GPT2LMHeadModel, GPT2Tokenizer, BertTokenizer, BertModel
+from pint import UnitRegistry
+import scipy.constants as const
+from chempy import balance_stoichiometry
+from sympy import symbols, Eq, solve
+import spacy
 
-# Initialize BERT and GPT-2 models
-bert_tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-bert_model = BertModel.from_pretrained('bert-base-uncased')
-gpt2_tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-gpt2_model = GPT2LMHeadModel.from_pretrained("gpt2")
+# Load the spaCy English language model
+nlp = spacy.load('en_core_web_sm')
+
+ureg = UnitRegistry()
+Q_ = ureg.Quantity
 
 # Load spaCy model for supplementary NLP tasks
 nlp = spacy.load('en_core_web_sm')
@@ -38,18 +42,6 @@ def setup_database():
     conn.commit()
     conn.close()
 
-# BERT embeddings
-def get_bert_embeddings(text):
-    inputs = bert_tokenizer(text, return_tensors="pt", padding=True, truncation=True)
-    outputs = bert_model(**inputs)
-    return outputs.last_hidden_state[:, 0, :].detach().numpy()
-
-# GPT-2 response generation
-def generate_response(prompt):
-    inputs = gpt2_tokenizer.encode(prompt, return_tensors="pt")
-    outputs = gpt2_model.generate(inputs, max_length=50, num_return_sequences=1)
-    return gpt2_tokenizer.decode(outputs[0], skip_special_tokens=True)
-    
 def get_answer(question):
     # Normalizing the question
     question = question.lower().strip()
@@ -83,6 +75,7 @@ def get_answer(question):
     
     # If no similar question found, generate response using GPT-2
     return generate_response(question), None
+    
 
 
 def add_or_update_qa_pair(question, answer):
@@ -101,8 +94,12 @@ def add_or_update_qa_pair(question, answer):
 
 def solve_math_problem(question, decimal_places=2):
     try:
-        # Strip off leading 'solve' and any non-math characters that might confuse the parser
+        # Strip off 'solve' keyword and any non-math characters that might confuse the parser
         clean_question = re.sub(r'[^0-9\+\-\*\/\^\(\)\=\.]', ' ', question.replace('solve', '', 1).strip())
+        
+        # Add explicit multiplication where necessary
+        clean_question = add_explicit_multiplication(clean_question)
+        
         # Use sympify to parse the cleaned question
         expr = sympify(clean_question)
         
@@ -270,6 +267,132 @@ class QnAGuiApp:
         else:
             previous_question = question
             return generate_response(question)
+
+def add_explicit_multiplication(expr):
+    # Regex to insert * between digit and parenthesis or between parentheses without operator
+    expr = re.sub(r'(\d)(\()', r'\1*\2', expr)
+    expr = re.sub(r'(\))(\d)', r'\1*\2', expr)
+    expr = re.sub(r'(\))(\()', r'\1*\2', expr)
+    return expr
+
+def evaluate_with_units(expression):
+    try:
+        # Parse the expression with units
+        result = Q_(expression).to_base_units().magnitude
+        return f"The result is {result:.2f} in base units"
+    except Exception as e:
+        return f"Error evaluating expression with units: {str(e)}"
+
+def balance_chemical_equation(reactants, products):
+    try:
+        reac, prod = balance_stoichiometry({reactants}, {products})
+        balanced_eq = ' + '.join(f"{v} {k}" for k, v in reac.items()) + ' -> ' + ' + '.join(f"{v} {k}" for k, v in prod.items())
+        return f"Balanced equation: {balanced_eq}"
+    except Exception as e:
+        return f"Could not balance equation: {str(e)}"
+
+def calculate_kinetic_energy(mass, velocity):
+    try:
+        ke = 0.5 * mass * (velocity ** 2)
+        return f"The kinetic energy of a {mass} kg object moving at {velocity} meters per second is {ke} joules."
+    except Exception as e:
+        return f"Error calculating kinetic energy: {str(e)}"
+
+
+def handle_question(question):
+    # Use regex to identify numbers, words, and basic mathematical operations
+    numbers = map(float, re.findall(r"\d+\.?\d*", question))
+    words = re.findall(r"[a-zA-Z]+", question)
+
+    # Natural language handling to categorize the question
+    if 'kinetic energy' in question:
+        try:
+            mass, velocity = numbers
+            return calculate_kinetic_energy(mass, velocity)
+        except Exception as e:
+            return f"Error in calculating kinetic energy: {str(e)}"
+
+    elif 'solve' in question and 'equation' in question:
+        # For algebraic solutions, the equation should be clearly specified
+        try:
+            equation = ' '.join(words)
+            return solve_algebraic_equation(equation)
+        except Exception as e:
+            return f"Failed to solve the equation: {str(e)}"
+
+    elif 'balance' in question and 'equation' in question:
+        # Extracting chemical equation components for balancing
+        try:
+            reactants, products = question.split('->')
+            return balance_chemical_equation(reactants, products)
+        except Exception as e:
+            return f"Error balancing the equation: {str(e)}"
+
+    elif 'molar mass' in question:
+        try:
+            compound = ' '.join(words)
+            return calculate_molar_mass(compound)
+        except Exception as e:
+            return f"Error calculating molar mass: {str(e)}"
+
+    else:
+        # This could be further enhanced by integrating with a large language model for dynamic response generation
+        return generate_dynamic_response(question)
+
+def generate_dynamic_response(question):
+    # Analyze the question
+    doc = nlp(question)
+    nouns = [chunk.text for chunk in doc.noun_chunks]  # Extract noun phrases for context
+    verbs = [token.lemma_ for token in doc if token.pos_ == 'VERB']  # Extract verbs for action context
+
+    # Check if any entities or keywords are recognized
+    if nouns:
+        response = f"That's interesting, tell me more about {nouns[0]}."
+    elif verbs:
+        response = f"Can you explain how you {verbs[0]} that?"
+    else:
+        response = "I'm still learning about that topic. Can you ask something else?"
+
+    return response
+
+def generate_response(question):
+    # Analyze the question
+    doc = nlp(question)
+    nouns = [chunk.text for chunk in doc.noun_chunks]  # Extract noun phrases for context
+    verbs = [token.lemma_ for token in doc if token.pos_ == 'VERB']  # Extract verbs for action context
+
+    # Check if any entities or keywords are recognized
+    if nouns:
+        response = f"That's interesting, tell me more about {nouns[0]}."
+    elif verbs:
+        response = f"Can you explain how you {verbs[0]} that?"
+    else:
+        response = "I'm still learning about that topic. Can you ask something else?"
+
+    return response
+
+def calculate_kinetic_energy(mass, velocity):
+    # Kinetic energy = 0.5 * mass * velocity^2
+    ke = 0.5 * mass * (velocity ** 2)
+    return f"The kinetic energy is {ke} joules"
+
+def balance_chemical_equation(reactants, products):
+    reac, prod = balance_stoichiometry({reactants}, {products})
+    balanced_eq = ' + '.join(f"{v} {k}" for k, v in reac.items()) + ' -> ' + ' + '.join(f"{v} {k}" for k, v in prod.items())
+    return f"Balanced equation: {balanced_eq}"
+
+
+def solve_algebraic_equation(equation):
+    try:
+        x = symbols('x')
+        eq = eval("Eq(" + equation.replace("=", ",") + ")")
+        solution = solve(eq, x)
+        if solution:
+            return f"The solution to the equation {equation} is x = {solution[0]}"
+        else:
+            return "The equation has no solution."
+    except Exception as e:
+        return f"Error solving the equation: {str(e)}"
 
 # Run the application
 if __name__ == "__main__":
